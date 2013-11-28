@@ -1,8 +1,7 @@
 /**
  * file: mod.js
- * ver: 1.0.3
- * auth: zhangjiachen@baidu.com
- * update: 11:48 2013/7/10
+ * ver: 1.0.5
+ * update: 2013/10/21
  */
 var require, define;
 
@@ -16,26 +15,52 @@ var require, define;
         pkgMap = {};
 
 
-    function loadScript(id, callback) {
+
+    function createScript(url, onerror) {
+        if (url in scriptsMap) return;
+        scriptsMap[url] = true;
+
+        var script = document.createElement('script');
+        if (onerror) {
+            var tid = setTimeout(onerror, require.timeout);
+
+            script.onerror = function() {
+                clearTimeout(tid);
+                onerror();
+            };
+
+            script.onreadystatechange = function() {
+                if (this.readyState == 'complete') {
+                    clearTimeout(tid);
+                }
+            }
+        }
+        script.type = 'text/javascript';
+        script.src = url;
+        head.appendChild(script);
+        return script;
+    }
+
+    function loadScript(id, callback, onerror) {
         var queue = loadingMap[id] || (loadingMap[id] = []);
         queue.push(callback);
 
         //
-        // load this script
+        // resource map query
         //
         var res = resMap[id] || {};
-        var url = res.pkg
-                    ? pkgMap[res.pkg].url
-                    : (res.url || id);
+        var pkg = res.pkg;
+        var url;
 
-        if (! (url in scriptsMap))  {
-            scriptsMap[url] = true;
-
-            var script = document.createElement('script');
-            script.type = 'text/javascript';
-            script.src = url;
-            head.appendChild(script);
+        if (pkg) {
+            url = pkgMap[pkg].url;
+        } else {
+            url = res.url || id;
         }
+
+        createScript(url, onerror && function() {
+            onerror(id);
+        });
     }
 
     define = function(id, factory) {
@@ -67,7 +92,7 @@ var require, define;
         }
 
         mod = modulesMap[id] = {
-            'exports': {}
+            exports: {}
         };
 
         //
@@ -83,7 +108,7 @@ var require, define;
         return mod.exports;
     };
 
-    require.async = function(names, callback) {
+    require.async = function(names, onload, onerror) {
         if (typeof names == 'string') {
             names = [names];
         }
@@ -107,7 +132,7 @@ var require, define;
 
                 needMap[dep] = true;
                 needNum++;
-                loadScript(dep, updateNeed);
+                loadScript(dep, updateNeed, onerror);
 
                 var child = resMap[dep];
                 if (child && 'deps' in child) {
@@ -122,7 +147,7 @@ var require, define;
                 for(i = 0, n = names.length; i < n; ++i) {
                     args[i] = require(names[i]);
                 }
-                callback && callback.apply(self, args);
+                onload && onload.apply(self, args);
             }
         }
         
@@ -133,6 +158,7 @@ var require, define;
     require.resourceMap = function(obj) {
         var k, col;
 
+        // merge `res` & `pkg` fields
         col = obj.res;
         for(k in col) {
             if (col.hasOwnProperty(k)) {
@@ -148,7 +174,35 @@ var require, define;
         }
     };
 
+    require.loadJs = function(url) {
+        createScript(url);
+    };
+
+    require.loadCss = function(cfg) {
+        if (cfg.content) {
+            var sty = document.createElement('style');
+            sty.type = 'text/css';
+            
+            if (sty.styleSheet) {       // IE
+                sty.styleSheet.cssText = cfg.content;
+            } else {
+                sty.innerHTML = cfg.content;
+            }
+            head.appendChild(sty);
+        }
+        else if (cfg.url) {
+            var link = document.createElement('link');
+            link.href = cfg.url;
+            link.rel = 'stylesheet';
+            link.type = 'text/css';
+            head.appendChild(link);
+        }
+    };
+
+
     require.alias = function(id) {return id};
+
+    require.timeout = 5000;
 
     define.amd = {
         'jQuery': true,
